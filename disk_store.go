@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"time"
 )
 
 // DiskStore is a Log-Structured Hash Table as described in the BitCask paper. We
@@ -47,6 +48,8 @@ import (
 //	   	store.Set("othello", "shakespeare")
 //	   	author := store.Get("othello")
 type DiskStore struct {
+	f      *os.File
+	curPos int64
 }
 
 func isFileExists(fileName string) bool {
@@ -57,18 +60,84 @@ func isFileExists(fileName string) bool {
 	return false
 }
 
+var keyDir map[string]keyEntry = map[string]keyEntry{}
+
 func NewDiskStore(fileName string) (*DiskStore, error) {
-	panic("implement me")
+	var (
+		fi     os.FileInfo
+		err    error
+		f      *os.File
+		curPos int64
+	)
+
+	fi, err = os.Stat(fileName)
+	if err != nil && errors.Is(err, fs.ErrExist) {
+		return nil, err
+	}
+
+	if fi != nil {
+		curPos = fi.Size()
+	}
+
+	if f, err = os.OpenFile(fileName, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644); err != nil {
+		return nil, err
+	}
+
+	os.Stat(fileName)
+
+	return &DiskStore{
+		f:      f,
+		curPos: curPos,
+	}, nil
 }
 
 func (d *DiskStore) Get(key string) string {
-	panic("implement me")
+	keyInfo, found := keyDir[key]
+	if !found {
+		return ""
+	}
+
+	buf := make([]byte, keyInfo.valueSize)
+	_, err := d.f.ReadAt(buf, keyInfo.valuePos)
+	if err != nil {
+		panic(err)
+	}
+
+	_, _, val := decodeKV(buf)
+	return val
 }
 
 func (d *DiskStore) Set(key string, value string) {
-	panic("implement me")
+	timestamp := time.Now().Unix()
+
+	dataLen, data := encodeKV(
+		uint32(timestamp),
+		key,
+		value,
+	)
+
+	written, err := d.f.Write(data)
+	if err != nil {
+		panic(err)
+	}
+	if written != dataLen {
+		panic("written != datalen")
+	}
+
+	keyDir[key] = keyEntry{
+		timestamp: uint32(timestamp),
+		valueSize: uint(dataLen),
+		valuePos:  d.curPos,
+	}
+	d.curPos += int64(dataLen)
+
 }
 
 func (d *DiskStore) Close() bool {
-	panic("implement me")
+	err := d.f.Close()
+	if err != nil {
+		panic(err)
+	}
+
+	return true
 }

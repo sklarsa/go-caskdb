@@ -1,5 +1,9 @@
 package caskdb
 
+import (
+	"unicode/utf8"
+)
+
 // format file provides encode/decode functions for serialisation and deserialisation
 // operations
 //
@@ -61,28 +65,69 @@ package caskdb
 // as ~8.4GB.
 const headerSize = 12
 
-// KeyEntry keeps the metadata about the KV, specially the position of
+// keyEntry keeps the metadata about the KV, specially the position of
 // the byte offset in the file. Whenever we insert/update a key, we create a new
-// KeyEntry object and insert that into keyDir.
-type KeyEntry struct {
+// keyEntry object and insert that into keyDir.
+type keyEntry struct {
+	fileId    uint // todo: use later when we do multi file stuff
+	valueSize uint
+	valuePos  int64
+	timestamp uint32
 }
 
-func NewKeyEntry(timestamp uint32, position uint32, totalSize uint32) KeyEntry {
+func NewKeyEntry(timestamp uint32, position uint32, totalSize uint32) keyEntry {
 	panic("implement me")
 }
 
 func encodeHeader(timestamp uint32, keySize uint32, valueSize uint32) []byte {
-	panic("implement me")
+	buf := make([]byte, 12)
+	header{
+		timestamp: timestamp,
+		keySize:   keySize,
+		valueSize: valueSize,
+	}.WriteBytes(buf)
+	return buf
 }
 
 func decodeHeader(header []byte) (uint32, uint32, uint32) {
-	panic("implement me")
+	h, err := headerFromBytes(header)
+	if err != nil {
+		panic(err)
+	}
+	return h.timestamp, h.keySize, h.valueSize
 }
 
 func encodeKV(timestamp uint32, key string, value string) (int, []byte) {
-	panic("implement me")
+	h := header{
+		timestamp: timestamp,
+		keySize:   uint32(len(key)),
+		valueSize: uint32(len(value)),
+	}
+
+	buf := make([]byte, h.KeyLen())
+
+	// Write Header
+	h.WriteBytes(buf)
+
+	// Write Key
+	for i, val := range key {
+		utf8.EncodeRune(buf[12+i:], val)
+	}
+
+	// Write value
+	for i, val := range value {
+		utf8.EncodeRune(buf[12+int(h.keySize)+i:], val)
+	}
+
+	return len(buf), buf
+
 }
 
 func decodeKV(data []byte) (uint32, string, string) {
-	panic("implement me")
+	header, err := headerFromBytes(data[:12])
+	if err != nil {
+		panic(err)
+	}
+
+	return header.timestamp, string(data[12 : 12+header.keySize]), string(data[12+header.keySize:])
 }
